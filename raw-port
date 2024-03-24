@@ -1,0 +1,13 @@
+#list port game genshin
+#mikrotik raw
+chain=prerouting action=add-dst-to-address-list log=no log-prefix="" 
+      src-address-list=user-khusus address-list=dst-list 
+      address-list-timeout=10m 
+chain=prerouting action=add-dst-to-address-list 
+      dst-port=5001,5003,9001,30000-30200 log=no log-prefix="" protocol=tcp 
+      address-list=IP-GML-TCP address-list-timeout=5m 
+
+chain=prerouting action=add-dst-to-address-list 
+      dst-port=2702,3702,4001-4009,5000-5221,5224-5241,5243-5287 log=no 
+      log-prefix="" protocol=udp address-list=IP-GML-UDP 
+      address-list-timeout=5m 
