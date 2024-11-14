@@ -3,6 +3,7 @@
 #- Spamhaus DROP
 #- Spamhaus EDROP
 #- Abuse.ch SSLBL
+# get database ip soruce https://iplists.firehol.org/
 # this script save into yout mikrotik script then create schedullar
 # after config into your device, then look on log monitoring
 ip firewall address-list
