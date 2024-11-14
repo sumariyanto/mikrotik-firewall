@@ -4,7 +4,7 @@
 #- Spamhaus EDROP
 #- Abuse.ch SSLBL
 # this script save into yout mikrotik script then create schedullar
-
+# affter config into your device, then look on log monitoring
 ip firewall address-list
 :local update do={
 :do {
