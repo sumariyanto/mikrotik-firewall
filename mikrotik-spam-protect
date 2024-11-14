@@ -4,7 +4,7 @@
 #- Spamhaus EDROP
 #- Abuse.ch SSLBL
 # this script save into yout mikrotik script then create schedullar
-# affter config into your device, then look on log monitoring
+# after config into your device, then look on log monitoring
 ip firewall address-list
 :local update do={
 :do {
@@ -22,6 +22,8 @@ $update url=https://www.dshield.org/block.txt description=DShield delimiter=("\t
 $update url=https://www.spamhaus.org/drop/drop.txt description="Spamhaus DROP" delimiter=("\_")
 $update url=https://www.spamhaus.org/drop/edrop.txt description="Spamhaus EDROP" delimiter=("\_")
 $update url=https://sslbl.abuse.ch/blacklist/sslipblacklist.txt description="Abuse.ch SSLBL" delimiter=("\r")
+$update url=https://lists.blocklist.de/lists/bots.txt description="bots" delimiter=("\n")
+$update url=https://raw.githubusercontent.com/ktsao ... el2.netset description="FireHOL Level2" delimiter=("\n")
 
 #then create firewall raw for example 
 /ip firewall raw
