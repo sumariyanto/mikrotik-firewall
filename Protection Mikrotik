@@ -1,0 +1,138 @@
+# ==============================================
+# MikroTik RouterOS v7 Security Script
+# Protects against:
+# - Connection flooding
+# - Port scanning
+# - Brute force attacks
+# ==============================================
+
+# Remove existing firewall rules and lists (comment out if adding to existing config)
+/ip firewall filter remove [find]
+/ip firewall connection remove [find]
+/ip firewall address-list remove [find]
+
+# ==============================================
+# Address Lists for Known Threats
+# ==============================================
+/ip firewall address-list
+add address=10.0.0.0/8 list=private_ranges comment="RFC1918 Private ranges"
+add address=172.16.0.0/12 list=private_ranges
+add address=192.168.0.0/16 list=private_ranges
+add address=169.254.0.0/16 list=private_ranges
+add address=224.0.0.0/4 list=private_ranges comment="Multicast addresses"
+add address=240.0.0.0/4 list=private_ranges comment="Reserved addresses"
+
+# ==============================================
+# Basic Firewall Filter Rules
+# ==============================================
+/ip firewall filter
+
+# Drop invalid connections
+add chain=input action=drop connection-state=invalid comment="Drop invalid connections"
+add chain=forward action=drop connection-state=invalid
+
+# Drop packets from private ranges coming from WAN
+add chain=input action=drop src-address-list=private_ranges in-interface-list=WAN comment="Drop private IPs from WAN"
+add chain=forward action=drop src-address-list=private_ranges in-interface-list=WAN
+
+# Drop non-standard MSS values
+add chain=input action=drop protocol=tcp tcp-flags=syn tcp-options=mss:!0-1460 in-interface-list=WAN comment="Drop abnormal MSS"
+add chain=forward action=drop protocol=tcp tcp-flags=syn tcp-options=mss:!0-1460 in-interface-list=WAN
+
+# ==============================================
+# Protection Against Port Scanning
+# ==============================================
+
+# Detect port scanners (adds to port_scan list)
+add chain=input protocol=tcp psd=21,3s,3,1 action=add-src-to-address-list address-list=port_scanners address-list-timeout=1w comment="Port Scan Detection"
+add chain=input protocol=tcp connection-limit=3,32 src-address-list=port_scanners action=add-src-to-address-list address-list=blocked address-list-timeout=1w comment="Block Port Scanners"
+
+# ==============================================
+# Protection Against Brute Force Attacks
+# ==============================================
+
+# SSH brute force protection
+add chain=input protocol=tcp dst-port=22 src-address-list=ssh_blacklist action=drop comment="Drop SSH brute forcers"
+add chain=input protocol=tcp dst-port=22 connection-limit=3,32 src-address-list=ssh_stage3 action=add-src-to-address-list address-list=ssh_blacklist address-list-timeout=1w comment="Blacklist SSH brute forcers"
+add chain=input protocol=tcp dst-port=22 connection-limit=2,32 src-address-list=ssh_stage2 action=add-src-to-address-list address-list=ssh_stage3 address-list-timeout=1m comment="3rd Stage SSH brute forcers"
+add chain=input protocol=tcp dst-port=22 connection-limit=1,32 src-address-list=ssh_stage1 action=add-src-to-address-list address-list=ssh_stage2 address-list-timeout=1m comment="2nd Stage SSH brute forcers"
+add chain=input protocol=tcp dst-port=22 connection-limit=1,32 action=add-src-to-address-list address-list=ssh_stage1 address-list-timeout=1m comment="1st Stage SSH brute forcers"
+
+# Winbox brute force protection
+add chain=input protocol=tcp dst-port=8291 src-address-list=winbox_blacklist action=drop comment="Drop Winbox brute forcers"
+add chain=input protocol=tcp dst-port=8291 connection-limit=3,32 src-address-list=winbox_stage3 action=add-src-to-address-list address-list=winbox_blacklist address-list-timeout=1w comment="Blacklist Winbox brute forcers"
+add chain=input protocol=tcp dst-port=8291 connection-limit=2,32 src-address-list=winbox_stage2 action=add-src-to-address-list address-list=winbox_stage3 address-list-timeout=1m comment="3rd Stage Winbox brute forcers"
+add chain=input protocol=tcp dst-port=8291 connection-limit=1,32 src-address-list=winbox_stage1 action=add-src-to-address-list address-list=winbox_stage2 address-list-timeout=1m comment="2nd Stage Winbox brute forcers"
+add chain=input protocol=tcp dst-port=8291 connection-limit=1,32 action=add-src-to-address-list address-list=winbox_stage1 address-list-timeout=1m comment="1st Stage Winbox brute forcers"
+
+# ==============================================
+# Protection Against Flooding
+# ==============================================
+
+# ICMP flood protection
+add chain=input protocol=icmp limit=5,10 action=accept comment="Allow limited ICMP"
+add chain=input protocol=icmp action=drop comment="Drop excess ICMP"
+
+# SYN flood protection
+add chain=input protocol=tcp tcp-flags=syn connection-limit=32,32 action=add-src-to-address-list address-list=syn_flood address-list-timeout=10m comment="Detect SYN flood"
+add chain=input protocol=tcp tcp-flags=syn src-address-list=syn_flood action=drop comment="Drop SYN flood"
+
+# UDP flood protection
+add chain=input protocol=udp limit=50,100 action=accept comment="Allow limited UDP"
+add chain=input protocol=udp action=drop comment="Drop excess UDP"
+
+# ==============================================
+# Final Blocking Rules
+# ==============================================
+
+# Block all other unwanted traffic
+add chain=input action=drop src-address-list=blocked comment="Drop all blocked IPs"
+add chain=input action=drop in-interface-list=WAN comment="Drop everything else from WAN not explicitly allowed"
+
+# ==============================================
+# Allow Established/Related Connections
+# ==============================================
+add chain=input action=accept connection-state=established,related comment="Allow established/related"
+
+# ==============================================
+# Allow Necessary Services (Customize as needed)
+# ==============================================
+add chain=input action=accept protocol=tcp dst-port=22 in-interface-list=WAN comment="Allow SSH from WAN (adjust as needed)"
+add chain=input action=accept protocol=icmp comment="Allow ICMP (ping)"
+add chain=input action=accept protocol=udp dst-port=33434-33534 comment="Allow traceroute"
+
+# ==============================================
+# Enable Raw Table Filtering for Extra Protection
+# ==============================================
+/ip firewall raw
+
+# Drop invalid packets before connection tracking
+add chain=prerouting action=drop connection-state=invalid comment="Drop invalid connections"
+
+# Fast drop for port scanners
+add chain=prerouting action=drop src-address-list=port_scanners comment="Drop port scanners early"
+
+# Fast drop for brute force attackers
+add chain=prerouting action=drop src-address-list=ssh_blacklist comment="Drop SSH attackers early"
+add chain=prerouting action=drop src-address-list=winbox_blacklist comment="Drop Winbox attackers early"
+
+# ==============================================
+# Connection Tracking Settings
+# ==============================================
+/ip firewall connection tracking
+set enabled=yes generic-timeout=10m tcp-close-timeout=10s tcp-close-wait-timeout=10s tcp-established-timeout=1d tcp-fin-wait-timeout=10s tcp-last-ack-timeout=10s tcp-syn-received-timeout=5s tcp-syn-sent-timeout=5s tcp-time-wait-timeout=10s udp-stream-timeout=3m udp-timeout=10s icmp-timeout=10s
+
+# ==============================================
+# Enable Defense Against Spoofing
+# ==============================================
+/ip settings
+set rp-filter=strict
+
+# ==============================================
+# Logging (Optional)
+# ==============================================
+/ip firewall filter
+add chain=input action=log log-prefix="BLOCKED INPUT: " comment="Log blocked input traffic"
+add chain=forward action=log log-prefix="BLOCKED FORWARD: " comment="Log blocked forward traffic"
+
+# End of script
