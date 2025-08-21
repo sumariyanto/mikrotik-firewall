@@ -1,0 +1,193 @@
+Script Firewall Protection Lengkap
+###############################################################################
+# MIKROTIK DEFAULT FIREWALL PROTECTION SCRIPT
+# Script ini memberikan perlindungan komprehensif untuk router MikroTik
+###############################################################################
+
+# ==================== KONFIGURASI DASAR ====================
+/ip firewall address-list
+# Whitelist jaringan lokal dan terpercaya
+add address=192.168.0.0/16 list=WHITELIST comment="Jaringan lokal private"
+add address=10.0.0.0/8 list=WHITELIST comment="Jaringan lokal private"
+add address=172.16.0.0/12 list=WHITELIST comment="Jaringan lokal private"
+add address=100.64.0.0/10 list=WHITELIST comment="CGNAT Range"
+
+# ==================== FIREWALL FILTER RULES ====================
+/ip firewall filter
+
+# -------- CHAIN: INPUT (Traffic menuju router) --------
+
+# Langsung accept established/related connections
+add chain=input action=accept connection-state=established,related \
+    comment="Accept established/related connections"
+
+# Whitelist trusted networks
+add chain=input action=accept src-address-list=WHITELIST \
+    comment="Accept whitelisted networks"
+
+# Drop invalid connections
+add chain=input action=drop connection-state=invalid \
+    comment="Drop invalid connections"
+
+# Protection terhadap ICMP flood (ping flood)
+add chain=input action=accept protocol=icmp limit=50/5s,5 \
+    comment="Limit ICMP requests"
+add chain=input action=drop protocol=icmp \
+    comment="Drop excess ICMP"
+
+# Protection terhadap SYN Flood
+add chain=input action=add-src-to-address-list address-list=SYN_FLOOD \
+    address-list-timeout=10m protocol=tcp tcp-flags=syn connection-state=new \
+    limit=30/2s,5 comment="Detect SYN flood"
+add chain=input action=drop src-address-list=SYN_FLOOD \
+    comment="Drop SYN flood packets"
+
+# Protection terhadap SYNFIN Scan
+add chain=input action=add-src-to-address-list address-list=SYNFIN_SCANNERS \
+    address-list-timeout=1d protocol=tcp tcp-flags=syn,fin \
+    comment="Detect SYNFIN scanners"
+add chain=input action=drop src-address-list=SYNFIN_SCANNERS \
+    comment="Block SYNFIN scanners"
+add chain=input action=drop protocol=tcp tcp-flags=syn,fin \
+    comment="Drop SYNFIN packets immediately"
+
+# Protection terhadap port scanning
+add chain=input action=add-src-to-address-list address-list=PORT_SCANNERS \
+    address-list-timeout=6h protocol=tcp connection-state=new \
+    limit=15/30s,5 comment="Detect port scanners"
+add chain=input action=drop src-address-list=PORT_SCANNERS \
+    comment="Block port scanners"
+
+# Drop packets from bogus IPs
+add chain=input action=drop src-address=0.0.0.0/8 comment="Drop bogus IPs"
+add chain=input action=drop src-address=127.0.0.0/8 comment="Drop localhost"
+add chain=input action=drop src-address=169.254.0.0/16 comment="Drop link-local"
+add chain=input action=drop src-address=224.0.0.0/3 comment="Drop multicast"
+
+# Accept necessary management traffic (SSH, Winbox, API)
+add chain=input action=accept protocol=tcp dst-port=8291 \
+    comment="Allow Winbox"
+add chain=input action=accept protocol=tcp dst-port=22 \
+    comment="Allow SSH"
+add chain=input action=accept protocol=tcp dst-port=8728 \
+    comment="Allow API"
+add chain=input action=accept protocol=udp dst-port=20561 \
+    comment="Allow MAC Telnet"
+
+# Accept ICMP (ping) dengan limit
+add chain=input action=accept protocol=icmp icmp-options=8:0-255 limit=5/s \
+    comment="Allow limited ICMP echo"
+
+# Default drop rule untuk input chain
+add chain=input action=drop comment="Drop all other input traffic"
+
+# -------- CHAIN: FORWARD (Traffic melalui router) --------
+
+# Langsung accept established/related connections
+add chain=forward action=accept connection-state=established,related \
+    comment="Accept established/related forward connections"
+
+# Whitelist trusted networks untuk forwarding
+add chain=forward action=accept src-address-list=WHITELIST \
+    comment="Accept forward from whitelisted networks"
+
+# Drop invalid connections
+add chain=forward action=drop connection-state=invalid \
+    comment="Drop invalid forward connections"
+
+# Protection terhadap DNS amplification attacks
+add chain=forward action=drop protocol=udp src-port=53 \
+    comment="Drop DNS responses to WAN"
+
+# Protection terhadap DHCP starvation
+add chain=forward action=drop protocol=udp src-port=67-68 \
+    comment="Drop DHCP requests from WAN"
+
+# Default drop rule untuk forward chain
+add chain=forward action=drop comment="Drop all other forward traffic"
+
+# -------- CHAIN: OUTPUT (Traffic dari router) --------
+add chain=output action=accept comment="Allow all output traffic"
+
+# ==================== FIREWALL NAT RULES ====================
+/ip firewall nat
+
+# Masquerade untuk jaringan lokal
+add chain=srcnat action=masquerade out-interface-list=WAN \
+    src-address=192.168.0.0/16 comment="Masquerade local network"
+add chain=srcnat action=masquerade out-interface-list=WAN \
+    src-address=10.0.0.0/8 comment="Masquerade local network"
+
+# ==================== RAW TABLE (Pre-Connection Tracking) ====================
+/ip firewall raw
+
+# Fast drop untuk known malicious traffic sebelum connection tracking
+add chain=prerouting action=drop src-address-list=SYN_FLOOD \
+    comment="Fast drop SYN flood"
+add chain=prerouting action=drop src-address-list=SYNFIN_SCANNERS \
+    comment="Fast drop SYNFIN scanners"
+add chain=prerouting action=drop src-address-list=PORT_SCANNERS \
+    comment="Fast drop port scanners"
+
+# Drop bogus IPs di raw table untuk efisiensi
+add chain=prerouting action=drop src-address=0.0.0.0/8 \
+    comment="Drop bogus IPs early"
+add chain=prerouting action=drop src-address=127.0.0.0/8 \
+    comment="Drop localhost early"
+
+# ==================== CONNECTION TRACKING TWEAKS ====================
+/ip firewall connection tracking
+set enabled=yes
+set tcp-sync-sent-timeout=20s
+set tcp-syn-received-timeout=20s
+set tcp-established-timeout=1d
+set tcp-fin-wait-timeout=2m
+set tcp-close-wait-timeout=2m
+set tcp-last-ack-timeout=30s
+set tcp-time-wait-timeout=2m
+set tcp-close-timeout=10s
+
+# ==================== SERVICE CONFIGURATION ====================
+/ip service
+set telnet disabled=yes
+set ftp disabled=yes
+set www disabled=yes
+set ssh port=2222
+set api disabled=yes
+set api-ssl disabled=yes
+
+# ==================== SCHEDULER UNTUK MAINTENANCE ====================
+/system scheduler
+add name="Firewall Reset" on-event="/ip firewall address-list remove [find where list=\"SYN_FLOOD\"]; \
+    /ip firewall address-list remove [find where list=\"PORT_SCANNERS\"]" \
+    start-date=jan/01/1970 start-time=00:00:00 interval=24h \
+    comment="Reset firewall blacklists daily"
+Cara Implementasi:
+Copy-paste script di atas ke terminal MikroTik atau Winbox
+Sesuaikan alamat jaringan lokal sesuai konfigurasi Anda
+Update interface-list "WAN" sesuai dengan nama interface WAN Anda
+Test konektivitas setelah implementasi
+Monitor log firewall untuk menyesuaikan threshold
+
+#Verifikasi Konfigurasi:
+#Setelah menerapkan script, verifikasi dengan perintah:
+
+/ip firewall filter print
+/ip firewall address-list print
+/ip service print
+
+Penjelasan Fitur Keamanan:
+Protection terhadap SYN Flood - Membatasi koneksi SYN baru
+Protection terhadap Port Scanning - Mendeteksi dan memblokir port scanner
+Protection terhadap SYNFIN Scan - Mendeteksi scan tidak normal
+Whitelisting jaringan lokal - Mempercayai traffic dari jaringan internal
+Drop bogus IP addresses - Memblokir alamat IP yang tidak valid
+Koneksi established/related优先 - Memprioritaskan koneksi yang sudah established
+Service Hardening - Menonaktifkan service yang tidak diperlukan
+
+Rekomendasi Tambahan:
+Selalu gunakan password yang kuat untuk user admin
+Update RouterOS secara berkala
+Backup konfigurasi secara reguler
+Monitor traffic dan log secara berkala
+Script ini memberikan dasar yang kuat untuk keamanan MikroTik router Anda. Sesuaikan dengan kebutuhan spesifik jaringan Anda.
