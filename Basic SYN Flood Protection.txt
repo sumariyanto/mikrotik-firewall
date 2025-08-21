@@ -1,0 +1,120 @@
+Script 1: Basic SYN Flood Protection
+
+/ip firewall filter
+add action=drop chain=input protocol=tcp tcp-flags=syn connection-state=new \
+    src-address-list=SYN_ATTACKERS comment="Drop SYN packets from known attackers"
+    
+add action=add-src-to-address-list address-list=SYN_ATTACKERS address-list-timeout=5m \
+    chain=input protocol=tcp tcp-flags=syn connection-state=new limit=50/5s,5 \
+    comment="Detect SYN flood attackers"
+
+add action=return chain=input protocol=tcp tcp-flags=syn connection-state=new \
+    src-address-list=WHITELIST comment="Whitelist trusted sources"
+Script 2: Advanced SYN/SYN-ACK Protection
+
+/ip firewall filter
+# Detect SYN Flood
+add action=add-src-to-address-list address-list=SYN_FLOOD address-list-timeout=10m \
+    chain=input protocol=tcp tcp-flags=syn connection-state=new limit=30/2s,5 \
+    comment="Detect SYN flood"
+
+# Detect SYN-ACK Flood (jika diperlukan)
+add action=add-src-to-address-list address-list=SYN_ACK_FLOOD address-list-timeout=10m \
+    chain=input protocol=tcp tcp-flags=syn,ack connection-state=new limit=40/2s,5 \
+    comment="Detect SYN-ACK flood"
+
+# Drop packets from flooders
+add action=drop chain=input src-address-list=SYN_FLOOD \
+    comment="Drop SYN flood packets"
+
+add action=drop chain=input src-address-list=SYN_ACK_FLOOD \
+    comment="Drop SYN-ACK flood packets"
+
+# Whitelist important addresses
+add action=return chain=input src-address=192.168.0.0/24 \
+    comment="Whitelist local network"
+add action=return chain=input src-address=10.0.0.0/8 \
+    comment="Whitelist private network"
+Script 3: Comprehensive Protection dengan Connection Tracking
+
+/ip firewall connection tracking
+set enabled=yes tcp-sync-sent-timeout=20s tcp-syn-received-timeout=20s \
+    tcp-established-timeout=1d tcp-fin-wait-timeout=2m tcp-close-wait-timeout=2m \
+    tcp-last-ack-timeout=30s tcp-time-wait-timeout=2m tcp-close-timeout=10s
+
+/ip firewall filter
+# Layer 1: Whitelist pertama
+add action=accept chain=input connection-state=established,related \
+    comment="Accept established/related connections"
+
+# Layer 2: SYN Flood Protection
+add action=accept chain=input protocol=tcp tcp-flags=syn connection-state=new \
+    src-address-list=TRUSTED limit=100/10s,5 comment="Allow trusted SYN"
+
+add action=add-src-to-address-list address-list=SYN_ATTACK address-list-timeout=15m \
+    chain=input protocol=tcp tcp-flags=syn connection-state=new limit=25/5s,5 \
+    comment="Detect SYN attackers"
+
+add action=drop chain=input protocol=tcp tcp-flags=syn connection-state=new \
+    src-address-list=SYN_ATTACK comment="Drop SYN from attackers"
+
+# Layer 3: Default SYN handling
+add action=accept chain=input protocol=tcp tcp-flags=syn connection-state=new \
+    limit=50/10s,10 comment="Allow normal SYN rate"
+
+add action=drop chain=input protocol=tcp tcp-flags=syn connection-state=new \
+    comment="Drop excess SYN packets"
+Script 4: Protection dengan RAW Table (Lebih Efisien)
+
+/ip firewall raw
+# Fast drop untuk SYN flood
+add action=drop chain=prerouting protocol=tcp tcp-flags=syn connection-state=new \
+    src-address-list=SYN_BLACKLIST comment="Fast drop SYN flood"
+
+add action=drop chain=prerouting protocol=tcp tcp-flags=syn,ack connection-state=new \
+    src-address-list=SYN_ACK_BLACKLIST comment="Fast drop SYN-ACK flood"
+
+/ip firewall filter
+# Deteksi dan blacklisting
+add action=add-src-to-address-list address-list=SYN_BLACKLIST address-list-timeout=30m \
+    chain=input protocol=tcp tcp-flags=syn connection-state=new limit=20/3s,5 \
+    comment="Detect SYN flood for raw table"
+
+add action=add-src-to-address-list address-list=SYN_ACK_BLACKLIST address-list-timeout=30m \
+    chain=input protocol=tcp tcp-flags=syn,ack connection-state=new limit=25/3s,5 \
+    comment="Detect SYN-ACK flood for raw table"
+Script 5: Customizable Protection dengan Variables
+
+# Set threshold values
+:local synThreshold 30
+:local synAckThreshold 25
+:local timeWindow "5s"
+:local banTime "15m"
+
+/ip firewall filter
+add action=add-src-to-address-list address-list=SYN_FLOODERS address-list-timeout=$banTime \
+    chain=input protocol=tcp tcp-flags=syn connection-state=new \
+    limit=$synThreshold/$timeWindow,5 comment="Dynamic SYN flood detection"
+
+add action=add-src-to-address-list address-list=SYN_ACK_FLOODERS address-list-timeout=$banTime \
+    chain=input protocol=tcp tcp-flags=syn,ack connection-state=new \
+    limit=$synAckThreshold/$timeWindow,5 comment="Dynamic SYN-ACK flood detection"
+
+add action=drop chain=input src-address-list=SYN_FLOODERS \
+    comment="Drop SYN flood packets"
+
+add action=drop chain=input src-address-list=SYN_ACK_FLOODERS \
+    comment="Drop SYN-ACK flood packets"
+Cara Implementasi:
+Pilih script yang sesuai dengan kebutuhan Anda
+
+Copy-paste ke terminal MikroTik atau Winbox
+Adjust threshold values sesuai dengan traffic normal jaringan Anda
+Test functionality sebelum deploy ke production
+Monitor logs untuk menyesuaikan threshold
+Tips:
+Mulai dengan threshold yang tinggi, lalu turunkan secara bertahap
+Whitelist IP address penting terlebih dahulu
+Monitor traffic menggunakan /tool traffic-monitor
+Gunakan /log print untuk melihat dropped packets
+Script ini akan membantu melindungi router MikroTik Anda dari serangan SYN/SYN-ACK Flooding while maintaining legitimate traffic flow.
