@@ -1,0 +1,73 @@
+Firewall MikroTik untuk Deteksi dan Blokir Scan SYNFIN
+Berikut adalah script firewall MikroTik untuk melindungi dari serangan scan SYNFIN (paket TCP dengan flag SYN dan FIN yang diset secara bersamaan):
+Script Firewall Filter untuk Scan SYNFIN
+/ip firewall filter
+# Aturan 1: Deteksi dan blokir paket SYNFIN
+add chain=input action=add-src-to-address-list address-list=SYNFIN_SCANNERS \
+    address-list-timeout=1d protocol=tcp tcp-flags=syn,fin connection-state=new \
+    comment="Detect SYNFIN scanners" disabled=no
+
+add chain=input action=drop src-address-list=SYNFIN_SCANNERS \
+    comment="Block SYNFIN scanners" disabled=no
+
+# Aturan 2: Langsung drop paket SYNFIN (lebih agresif)
+add chain=input action=drop protocol=tcp tcp-flags=syn,fin \
+    comment="Drop SYNFIN packets immediately" disabled=no
+
+# Aturan 3: Deteksi dengan rate limiting untuk mengurangi false positive
+add chain=input action=add-src-to-address-list address-list=SYNFIN_ATTACKERS \
+    address-list-timeout=2h protocol=tcp tcp-flags=syn,fin connection-state=new \
+    limit=5,5:packet comment="Detect SYNFIN with rate limit" disabled=no
+
+add chain=input action=drop src-address-list=SYNFIN_ATTACKERS \
+    comment="Block SYNFIN attackers" disabled=no
+
+# Aturan 4: Logging untuk monitoring (opsional)
+add chain=input action=log protocol=tcp tcp-flags=syn,fin connection-state=new \
+    log-prefix="SYNFIN_SCAN: " comment="Log SYNFIN scan attempts" disabled=no
+	
+Script Tambahan untuk Perlindungan Tambahan
+/ip firewall filter
+# Whitelist jaringan lokal dan terpercaya
+add chain=input action=accept src-address=192.168.0.0/16 \
+    comment="Whitelist local network" disabled=no
+add chain=input action=accept src-address=10.0.0.0/8 \
+    comment="Whitelist private network" disabled=no
+
+# Protection terhadap berbagai jenis scan dan abnormal packets
+add chain=input action=drop protocol=tcp tcp-flags=fin,!ack \
+    comment="Drop FIN without ACK" disabled=no
+add chain=input action=drop protocol=tcp tcp-flags=rst,!ack \
+    comment="Drop RST without ACK" disabled=no
+add chain=input action=drop protocol=tcp tcp-flags=!syn,!fin,!rst,!ack \
+    comment="Drop NULL packets" disabled=no
+
+# Rate limiting untuk koneksi baru
+add chain=input action=accept protocol=tcp connection-state=new \
+    limit=1000,5 src-address-list=WHITELIST \
+    comment="High limit for whitelisted hosts" disabled=no
+add chain=input action=drop protocol=tcp connection-state=new \
+    limit=50,5 comment="Limit new connections" disabled=no
+
+Script untuk Address Lists Management
+/ip firewall address-list
+# Daftar whitelist (sesuaikan dengan kebutuhan)
+add list=WHITELIST address=192.168.1.0/24 comment="Local subnet"
+add list=WHITELIST address=103.10.125.45 comment="Trusted host"
+
+# Daftar untuk menyimpan scanner
+add list=SYNFIN_SCANNERS comment="SYNFIN scanners list" disabled=no
+add list=SYNFIN_ATTACKERS comment="SYNFIN attackers list" disabled=no
+
+Script untuk Connection Tracking Tweaking (Opsional)
+/ip firewall connection tracking
+set enabled=yes
+set tcp-sync-sent-timeout=20s
+set tcp-syn-received-timeout=20s
+set tcp-established-timeout=1d
+set tcp-fin-wait-timeout=2m
+set tcp-close-wait-timeout=2m
+set tcp-last-ack-timeout=30s
+set tcp-time-wait-timeout=2m
+set tcp-close-timeout=10s
+
