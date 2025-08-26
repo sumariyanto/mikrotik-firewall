@@ -34,8 +34,8 @@ add action=return chain=input src-address=192.168.0.0/24 \
     comment="Whitelist local network"
 add action=return chain=input src-address=10.0.0.0/8 \
     comment="Whitelist private network"
-Script 3: Comprehensive Protection dengan Connection Tracking
 
+Script 3: Comprehensive Protection dengan Connection Tracking
 /ip firewall connection tracking
 set enabled=yes tcp-sync-sent-timeout=20s tcp-syn-received-timeout=20s \
     tcp-established-timeout=1d tcp-fin-wait-timeout=2m tcp-close-wait-timeout=2m \
@@ -118,4 +118,5 @@ Monitor traffic menggunakan /tool traffic-monitor
 Gunakan /log print untuk melihat dropped packets
 
 Script ini akan membantu melindungi router MikroTik Anda dari serangan SYN/SYN-ACK Flooding while maintaining legitimate traffic flow.
+
 
