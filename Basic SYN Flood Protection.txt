@@ -9,8 +9,8 @@ add action=add-src-to-address-list address-list=SYN_ATTACKERS address-list-timeo
 
 add action=return chain=input protocol=tcp tcp-flags=syn connection-state=new \
     src-address-list=WHITELIST comment="Whitelist trusted sources"
-Script 2: Advanced SYN/SYN-ACK Protection
 
+Script 2: Advanced SYN/SYN-ACK Protection
 /ip firewall filter
 # Detect SYN Flood
 add action=add-src-to-address-list address-list=SYN_FLOOD address-list-timeout=10m \
@@ -118,3 +118,4 @@ Monitor traffic menggunakan /tool traffic-monitor
 Gunakan /log print untuk melihat dropped packets
 
 Script ini akan membantu melindungi router MikroTik Anda dari serangan SYN/SYN-ACK Flooding while maintaining legitimate traffic flow.
+
