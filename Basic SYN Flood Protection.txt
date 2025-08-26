@@ -1,5 +1,4 @@
 Script 1: Basic SYN Flood Protection
-
 /ip firewall filter
 add action=drop chain=input protocol=tcp tcp-flags=syn connection-state=new \
     src-address-list=SYN_ATTACKERS comment="Drop SYN packets from known attackers"
@@ -117,4 +116,5 @@ Mulai dengan threshold yang tinggi, lalu turunkan secara bertahap
 Whitelist IP address penting terlebih dahulu
 Monitor traffic menggunakan /tool traffic-monitor
 Gunakan /log print untuk melihat dropped packets
+
 Script ini akan membantu melindungi router MikroTik Anda dari serangan SYN/SYN-ACK Flooding while maintaining legitimate traffic flow.
