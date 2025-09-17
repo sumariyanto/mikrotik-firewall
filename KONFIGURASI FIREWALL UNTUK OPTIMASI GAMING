@@ -1,0 +1,92 @@
+# ==============================================
+# KONFIGURASI PCQ UNTUK MOBILE LEGENDS
+# ==============================================
+
+# 1. Buat PCQ untuk upload dan download
+/queue type
+add name="PCQ-Download" kind=pcq pcq-rate=10M pcq-limit=50 pcq-classifier=dst-address pcq-total-limit=2000
+add name="PCQ-Upload" kind=pcq pcq-rate=5M pcq-limit=50 pcq-classifier=src-address pcq-total-limit=1000
+
+# 2. Identifikasi port Mobile Legends (port utama yang digunakan)
+# Mobile Legends biasanya menggunakan port range tertentu dan UDP
+/ip firewall mangle
+add chain=prerouting protocol=udp dst-port=1000-6000 action=mark-packet new-packet-mark=ml-traffic passthrough=yes comment="Mark Mobile Legends Traffic"
+add chain=prerouting protocol=tcp dst-port=1000-6000 action=mark-packet new-packet-mark=ml-traffic passthrough=yes comment="Mark Mobile Legends TCP Traffic"
+
+# 3. Alternatif: Mark berdasarkan alamat server Mobile Legends (lebih akurat)
+# Tambahkan IP server Mobile Legends yang diketahui
+/ip firewall address-list
+add list=ml-servers address=103.102.66.0/24 comment="Mobile Legends Servers"
+add list=ml-servers address=103.102.67.0/24
+add list=ml-servers address=150.109.0.0/16
+add list=ml-servers address=129.226.0.0/16
+
+# 4. Mangle rule untuk mark traffic ke/dari server ML
+/ip firewall mangle
+add chain=prerouting dst-address-list=ml-servers action=mark-packet new-packet-mark=ml-traffic passthrough=yes comment="Mark ML Traffic by Server IP"
+add chain=output src-address-list=ml-servers action=mark-packet new-packet-mark=ml-traffic passthrough=yes comment="Mark ML Traffic from Server"
+
+# 5. Buat queue tree untuk traffic Mobile Legends
+/queue tree
+add name="ML-Download" parent=global-in packet-mark=ml-traffic limit-at=0 queue=PCQ-Download priority=1 max-limit=10M burst-limit=15M burst-threshold=8M burst-time=30s comment="Mobile Legends Download Queue"
+add name="ML-Upload" parent=global-out packet-mark=ml-traffic limit-at=0 queue=PCQ-Upload priority=1 max-limit=5M burst-limit=8M burst-threshold=4M burst-time=30s comment="Mobile Legends Upload Queue"
+
+# 6. Optional: Prioritaskan traffic ML dengan simple queues
+/queue simple
+add name="Mobile-Legends-Priority" target=192.168.88.0/24 dst-address-list=ml-servers priority=1/1 queue=pcq-upload-default/pcq-download-default max-limit=15M/10M comment="Priority for Mobile Legends"
+
+# 7. Konfigurasi QoS umum untuk gaming
+/queue type
+add name="Gaming-PCQ" kind=pcq pcq-rate=512k pcq-limit=50 pcq-classifier=src-address,dst-address pcq-total-limit=2000
+
+# 8. Rule untuk membedakan traffic game dari lainnya
+/ip firewall mangle
+add chain=forward protocol=udp dst-port=1000-6000 action=mark-connection new-connection-mark=ml-conn passthrough=yes comment="Mark ML Connection"
+add chain=forward connection-mark=ml-conn action=mark-packet new-packet-mark=ml-traffic passthrough=no comment="Mark ML Packets"
+
+# ==============================================
+# KONFIGURASI FIREWALL UNTUK OPTIMASI GAMING
+# ==============================================
+
+/ip firewall filter
+# Prioritaskan packet marked ML
+add chain=forward packet-mark=ml-traffic action=fasttrack-connection comment="FastTrack ML Traffic"
+add chain=forward connection-mark=ml-conn action=accept priority=1 comment="Accept ML Traffic with High Priority"
+
+# ==============================================
+# KONFIGURASI TRAFFIC SHAPING UMUM
+# ==============================================
+
+# Queue tree untuk traffic lainnya (non-gaming)
+/queue tree
+add name="Other-Download" parent=global-in limit-at=0 queue=default priority=8 max-limit=90M comment="Other Traffic Download"
+add name="Other-Upload" parent=global-out limit-at=0 queue=default priority=8 max-limit=45M comment="Other Traffic Upload"
+
+# ==============================================
+# MONITORING CONFIGURATION
+# ==============================================
+
+/tool traffic-monitor
+add name="ML-Traffic-Monitor" interface=all traffic=packets on-event="/log info \"High ML Traffic Detected\"" threshold=1000
+
+# ==============================================
+# TESTING CONFIGURATION
+# ==============================================
+
+# Test rule untuk memastikan marking bekerja
+/ip firewall mangle
+add chain=prerouting src-address=192.168.88.100 protocol=udp dst-port=1000-6000 action=mark-packet new-packet-mark=test-ml-traffic passthrough=yes comment="Test ML Traffic Marking"
+
+# ==============================================
+# SCRIPT UNTUK MONITORING
+# ==============================================
+
+/system script
+add name="check-ml-traffic" source=":do {/queue tree print stats where name=\"ML-Download\"} on-error={}"
+
+# ==============================================
+# SCHEDULED TASK UNTUK MAINTENANCE
+# ==============================================
+
+/system scheduler
+add name="reset-ml-queues" start-time=00:00:00 interval=1d on-event="/queue tree reset [find name=\"ML-Download\"]; /queue tree reset [find name=\"ML-Upload\"]"
