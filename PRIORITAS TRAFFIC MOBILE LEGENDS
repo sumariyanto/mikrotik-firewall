@@ -1,0 +1,34 @@
+# -------------------------------
+# PRIORITAS TRAFFIC MOBILE LEGENDS
+# -------------------------------
+
+# 1. Hapus rule lama jika ada
+/ip firewall mangle
+remove [find comment="ML_CONNECTION"]
+remove [find comment="ML_PACKET"]
+
+# 2. Tandai koneksi Mobile Legends (UDP ports 5000–5200 & 5500–5700)
+add chain=prerouting protocol=udp port=5000-5200,5500-5700 \
+    action=mark-connection new-connection-mark=ml-connection passthrough=yes \
+    comment="ML_CONNECTION"
+
+# 3. Tandai paket dari koneksi tersebut
+add chain=prerouting connection-mark=ml-connection \
+    action=mark-packet new-packet-mark=ml-packet passthrough=no \
+    comment="ML_PACKET"
+
+# -------------------------------
+# 4. Buat Queue Tree (Prioritas)
+# -------------------------------
+
+/queue tree
+# Hapus queue lama bila sudah ada
+remove [find name="ML-Priority"]
+
+# Queue parent = interface keluar internet (ganti sesuai interface)
+add name="ML-Priority" parent=ether1 max-limit=0 packet-mark=ml-packet \
+    priority=1 queue=default comment="Prioritas tinggi Mobile Legends"
+
+# Optional: Tambahkan juga untuk arah download (parent=global)
+add name="ML-Priority-Download" parent=global packet-mark=ml-packet \
+    priority=1 queue=default comment="Prioritas download ML"
