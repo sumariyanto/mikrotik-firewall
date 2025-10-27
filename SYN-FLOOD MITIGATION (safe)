@@ -1,0 +1,66 @@
+# ============================
+# SYN-FLOOD MITIGATION (safe)
+# ============================
+
+# 0) Parameter — sesuaikan
+:local WAN_IF "pppoe-out1"        ; # ganti dengan interface WAN Anda
+:local WHITELIST_TIMEOUT "30d"    ; # durasi whitelist (trusted) — contoh 30 hari
+:local SUSPECT_TIMEOUT "1h"       ; # durasi block sementara jika terdeteksi flooding
+:local SYN_LIMIT_GLOBAL "200/5s"  ; # batas SYN global (contoh 200 per 5 detik)
+:local SYN_LIMIT_PER_SRC "20/5s"  ; # batas SYN per source (contoh 20 per 5 detik)
+
+# 1) Hapus rule / list lama (aman jika belum ada)
+/ip firewall address-list
+:if ([:len [/ip firewall address-list find list="SYN_WHITELIST"]] > 0) do={
+  remove [find list="SYN_WHITELIST"]
+}
+:if ([:len [/ip firewall address-list find list="SYN_SUSPECT"]] > 0) do={
+  remove [find list="SYN_SUSPECT"]
+}
+
+/ip firewall filter
+# hapus rule-rule sebelumnya yang memberi comment khusus (jika ada)
+:foreach i in=[/ip firewall filter find where comment~"SYN_LIMIT"] do={ /ip firewall filter remove $i }
+:foreach i in=[/ip firewall filter find where comment~"SYN_WHITELIST_ACCEPT"] do={ /ip firewall filter remove $i }
+:foreach i in=[/ip firewall filter find where comment~"SYN_SUSPECT_DROP"] do={ /ip firewall filter remove $i }
+
+# 2) Tambah address-list whitelist (trusted) — tambahkan IP sumber terpercaya di sini
+# Contoh: monitoring server, game server, partner IP
+add list=SYN_WHITELIST address=203.0.113.10 timeout=$WHITELIST_TIMEOUT comment="trusted monitoring"
+add list=SYN_WHITELIST address=198.51.100.5 timeout=$WHITELIST_TIMEOUT comment="trusted game-server"
+
+# 3) Terima koneksi established/related & dari LAN
+add chain=input connection-state=established,related action=accept comment="SYN_LIMIT - established"
+# Allow traffic from local/internal interfaces (ganti 'bridge-local' sesuai setup)
+add chain=input in-interface~"bridge" action=accept comment="SYN_LIMIT - from LAN"
+
+# 4) Terima trafik dari whitelist tanpa limit
+add chain=input src-address-list=SYN_WHITELIST action=accept comment="SYN_WHITELIST_ACCEPT"
+
+# 5) Batasi SYN baru — PER SOURCE (hindari single IP mengirim terlalu banyak SYN)
+add chain=input protocol=tcp tcp-flags=syn connection-state=new src-address-list=!SYN_WHITELIST \
+    src-address-list=!SYN_SUSPECT \
+    action=accept limit=$SYN_LIMIT_PER_SRC,5s,100 comment="SYN_LIMIT - per-src" disabled=no
+
+# 6) Batasi SYN baru — GLOBAL (hindari flood besar-besaran)
+add chain=input protocol=tcp tcp-flags=syn connection-state=new src-address-list=!SYN_WHITELIST \
+    src-address-list=!SYN_SUSPECT \
+    action=accept limit=$SYN_LIMIT_GLOBAL,5s,200 comment="SYN_LIMIT - global" disabled=no
+
+# 7) Jika melewati limit: tandai sebagai suspect (masukkan ke list untuk diblok sementara)
+/ip firewall filter
+add chain=input protocol=tcp tcp-flags=syn connection-state=new src-address-list=!SYN_WHITELIST \
+    action=add-src-to-address-list address-list=SYN_SUSPECT address-list-timeout=$SUSPECT_TIMEOUT \
+    comment="SYN_SUSPECT_ADD" disabled=no
+
+# 8) Drop semua SYN dari yang sudah masuk SYN_SUSPECT
+add chain=input src-address-list=SYN_SUSPECT protocol=tcp tcp-flags=syn action=drop comment="SYN_SUSPECT_DROP"
+
+# 9) Logging (opsional — hati-hati volume log)
+/ip firewall filter
+add chain=input src-address-list=SYN_SUSPECT action=log log-prefix="SYN_SUSPECT:" disabled=yes
+
+# 10) Informasi singkat user
+:put "SYN mitigation rules added."
+:put "Check /ip firewall address-list for SYN_WHITELIST and SYN_SUSPECT"
+:put "Adjust SYN_LIMIT_GLOBAL and SYN_LIMIT_PER_SRC variables if needed."
